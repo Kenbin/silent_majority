@@ -695,7 +695,7 @@ void Thread::search() {
 
 				if (Signals.stop)
 					break;
-#if 1
+#if 0
 				if (mainThread
                   && MultiPV == 1
                   && (bestScore <= alpha || bestScore >= beta)
