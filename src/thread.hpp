@@ -16,25 +16,26 @@ class Thread {
   bool exit, searching;
 
 public:
-  Thread();
-  virtual ~Thread();
-  virtual void search();
-  void idle_loop();
-  void start_searching(bool resume = false);
-  void wait_for_search_finished();
-  void wait(std::atomic_bool& b);
+	Thread();
+	virtual ~Thread();
+	virtual void search();
+	void idle_loop();
+	void start_searching(bool resume = false);
+	void wait_for_search_finished();
+	void wait(std::atomic_bool& b);
 
-    size_t pvIdx;
+	size_t pvIdx;
 	size_t idx;
-    int maxPly, callsCnt;
+	int maxPly, callsCnt;
 
-    Position rootPos;
-    Search::RootMoves rootMoves;
-    Depth rootDepth;
-    HistoryStats history;
-    MoveStats counterMoves;
-    Depth completedDepth;
-    std::atomic_bool resetCalls;
+	Position rootPos;
+	Search::RootMoves rootMoves;
+	Depth rootDepth;
+	HistoryStats history;
+	MoveStats counterMoves;
+	Depth completedDepth;
+	std::atomic_bool resetCalls;
+	CounterMoveHistoryStats counterMoveHistory;
 };
 
 struct MainThread : public Thread {

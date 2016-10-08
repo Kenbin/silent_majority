@@ -59,6 +59,7 @@ public:
 	MovePicker(const Position&, const Move, Score);
     MovePicker(const Position&, const Move, const Depth, Search::Stack*);
 	Move nextMove();
+	int seeSign() const;
 
 private:
 	void scoreCaptures();

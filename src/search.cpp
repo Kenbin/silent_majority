@@ -32,7 +32,7 @@ namespace {
     enum NodeType { NonPV, PV };
 
     const int razor_margin[4] = { 483, 570, 603, 554 };
-    inline Score futilityMargin(const Depth d) { return Score(200 * d);}
+    inline Score futilityMargin(const Depth d) { return Score(150 * d / OnePly);}
 
     int FutilityMoveCounts[2][16]; // [improving][depth]
 	Depth Reductions[2][2][64][64]; // [pv][improving][depth][moveNumber]
@@ -107,7 +107,6 @@ namespace {
 
     size_t MultiPV;
     EasyMoveManager EasyMove;
-    CounterMoveHistoryStats CounterMoveHistory;
 
     template <NodeType NT>
     Score search(Position& pos, Search::Stack* ss, Score alpha, Score beta, const Depth depth, const bool cutNode);
@@ -347,6 +346,9 @@ std::string pvInfoToUSI(Position& pos, const Depth depth, const Score alpha, con
 		for (Move m : rootMoves[i].pv)
 			ss << " " << m.toUSI();
 
+		if ( t > 1000 )
+			ss << " hashfull " << TT.hashfull();
+
 		ss << std::endl;
 	}
 	return ss.str();
@@ -380,16 +382,16 @@ void Search::init() {
 
 void Search::clear() {
 
-  TT.clear();
-  CounterMoveHistory.clear();
+	TT.clear();
 
-  for (Thread* th : Threads)
-  {
-    th->history.clear();
-    th->counterMoves.clear();
-  }
+	for (Thread* th : Threads)
+	{
+		th->history.clear();
+		th->counterMoves.clear();
+		th->counterMoveHistory.clear();
+	}
 
-  Threads.main()->previousScore = ScoreInfinite;
+	Threads.main()->previousScore = ScoreInfinite;
 }
 
 // 入玉勝ちかどうかを判定
@@ -589,6 +591,7 @@ void Thread::search() {
     Move easyMove = MOVE_NONE;
     MainThread* mainThread = (this == Threads.main() ? Threads.main() : nullptr);
     int lastInfoTime = -1; // 将棋所のコンソールが詰まる問題への対処用
+	int pv_margin = Options["PV_Margin"]; // PVの出力間隔[ms]
 
 	std::memset(ss-5, 0, 8 * sizeof(Stack));
 
@@ -698,7 +701,7 @@ void Thread::search() {
                   && (bestScore <= alpha || bestScore >= beta)
                   && 3000 < Time.elapsed()
 					// 将棋所のコンソールが詰まるのを防ぐ。
-					&& (rootDepth < 4 || lastInfoTime + 200 < Time.elapsed()))
+					&& (rootDepth < 4 || lastInfoTime + pv_margin < Time.elapsed()))
 				{
 					lastInfoTime = Time.elapsed();
 					SYNCCOUT << pvInfoToUSI(rootPos, rootDepth, alpha, beta) << SYNCENDL;
@@ -743,7 +746,7 @@ void Thread::search() {
             else if ((pvIdx + 1 == MultiPV
                 || 3000 < Time.elapsed())
 				// 将棋所のコンソールが詰まるのを防ぐ。
-				&& (rootDepth < 4 || lastInfoTime + 200 < Time.elapsed()))
+				&& (rootDepth < 4 || lastInfoTime + pv_margin < Time.elapsed()))
 			{
 				lastInfoTime = Time.elapsed();
 				SYNCCOUT << pvInfoToUSI(rootPos, rootDepth, alpha, beta) << SYNCENDL;
@@ -841,26 +844,13 @@ Score search(Position& pos, Stack* ss, Score alpha, Score beta, const Depth dept
 	StateInfo st;
 	TTEntry* tte;
 	Key posKey;
-	Move ttMove;
-	Move move;
-	Move excludedMove;
-	Move bestMove;
-	Depth newDepth;
-	Depth extension;
-    Depth predictedDepth;
-	Score bestScore;
-	Score score;
-	Score ttScore;
-	Score eval;
-    bool ttHit;
-	bool inCheck;
-	bool givesCheck;
-	bool singularExtensionNode;
-    bool improving;
-	bool captureOrPawnPromotion;
-	bool doFullDepthSearch;
-	int moveCount;
-	int quietCount;
+	Move ttMove, move, excludedMove, bestMove;
+	Depth newDepth, extension;
+	Score bestScore, score, ttScore, eval;
+	bool ttHit, inCheck, givesCheck, singularExtensionNode, improving;
+	bool captureOrPawnPromotion, doFullDepthSearch, moveCountPruning;
+	Piece moved_piece;
+	int moveCount, quietCount;
 
 	// step1
 	// initialize node
@@ -883,6 +873,7 @@ Score search(Position& pos, Stack* ss, Score alpha, Score beta, const Depth dept
         check_time();
     }
 
+	// Used to send selDepth info to GUI
 	if (PvNode && thisThread->maxPly < ss->ply)
 		thisThread->maxPly = ss->ply;
 
@@ -901,12 +892,10 @@ Score search(Position& pos, Stack* ss, Score alpha, Score beta, const Depth dept
 
 		// step3
 		// mate distance pruning
-		if (!rootNode) {
-			alpha = std::max(matedIn(ss->ply), alpha);
-			beta = std::min(mateIn(ss->ply+1), beta);
-			if (beta <= alpha)
-				return alpha;
-		}
+		alpha = std::max(matedIn(ss->ply), alpha);
+		beta = std::min(mateIn(ss->ply+1), beta);
+		if (beta <= alpha)
+			return alpha;
 	}
 
     ss->currentMove = (ss+1)->excludedMove = bestMove = Move::moveNone();
@@ -967,11 +956,10 @@ Score search(Position& pos, Stack* ss, Score alpha, Score beta, const Depth dept
 		goto moves_loop;
 	}
 	else if (ttHit) {
+		// Can ttValue be used as a better position evaluation?
 		if (ttScore != ScoreNone
 			&& (tte->bound() & (eval < ttScore ? BoundLower : BoundUpper)))
-		{
 			eval = ttScore;
-		}
 	}
 	else {
         if ((ss-1)->currentMove == MOVE_NULL)
@@ -988,14 +976,13 @@ Score search(Position& pos, Stack* ss, Score alpha, Score beta, const Depth dept
 	// razoring
 	if (!PvNode
 		&& depth < 4 * OnePly
-		&& eval + razor_margin[depth] <= alpha
+		&& eval + razor_margin[depth / OnePly] <= alpha
 		&& ttMove.isNone())
 	{
-        if (depth <= OnePly
-          && eval + razor_margin[3 * OnePly] <= alpha)
-          return qsearch<NonPV, false>(pos, ss, alpha, beta, Depth0);
+		if (depth <= OnePly)
+			return qsearch<NonPV, false>(pos, ss, alpha, beta, Depth0);
 
-		const Score ralpha = alpha - razor_margin[depth];
+		const Score ralpha = alpha - razor_margin[depth / OnePly];
 		const Score s = qsearch<NonPV, false>(pos, ss, ralpha, ralpha+1, Depth0);
 		if (s <= ralpha)
 			return s;
@@ -1007,44 +994,45 @@ Score search(Position& pos, Stack* ss, Score alpha, Score beta, const Depth dept
 		&& depth < 7 * OnePly
 		&& beta <= eval - futilityMargin(depth)
 		&& eval < ScoreKnownWin)
-	{
 		return eval - futilityMargin(depth);
-	}
 
 	// step8
 	// null move
 	if (!PvNode
-		&& 2 * OnePly <= depth
+		&& (ss->staticEval >= beta - 35 * (depth / OnePly - 6) || depth >= 13 * OnePly)
 		&& beta <= eval)
 	{
 		ss->currentMove = Move::moveNull();
         ss->counterMoves = nullptr;
 
         assert(eval - beta >= 0);
-        
-        Depth R = ((823 + 67 * depth) / 256 + std::min(int(eval - beta) / PawnScore, 3)) * OnePly;
+
+		// Null move dynamic reduction based on depth and value
+		Depth R = ((823 + 67 * depth / OnePly) / 256 + std::min(int(eval - beta) / PawnScore, 3)) * OnePly;
 
 		pos.doNullMove<true>(st);
 		(ss+1)->staticEvalRaw = (ss)->staticEvalRaw; // 評価値の差分評価の為。
 		(ss+1)->skipEarlyPruning = true;
 		Score nullScore = depth-R < OnePly ?
 			-qsearch<NonPV, false>(pos, ss+1, -beta, -beta+1, Depth0)
-		   : -search<NonPV>(pos, ss+1, -beta, -beta+1, depth-R, !cutNode);
+			: -search<NonPV>(pos, ss+1, -beta, -beta+1, depth-R, !cutNode);
 		(ss+1)->skipEarlyPruning = false;
 		pos.doNullMove<false>(st);
 
 		if (beta <= nullScore) {
+			// Do not return unproven mate scores
 			if (ScoreMateInMaxPly <= nullScore)
 				nullScore = beta;
 
 			if (depth < 12 * OnePly && abs(beta) < ScoreKnownWin)
 				return nullScore;
 
+			// Do verification search at high depths
 			ss->skipEarlyPruning = true;
 			assert(Depth0 < depth - R);
 			const Score s = depth-R < OnePly ? 
-               qsearch<NonPV, false>(pos, ss, beta-1, beta, Depth0)
-              : search<NonPV>(pos, ss, beta-1, beta, depth-R, false);
+				qsearch<NonPV, false>(pos, ss, beta-1, beta, Depth0)
+				: search<NonPV>(pos, ss, beta-1, beta, depth-R, false);
 			ss->skipEarlyPruning = false;
 
 			if (beta <= s)
@@ -1070,9 +1058,10 @@ Score search(Position& pos, Stack* ss, Score alpha, Score beta, const Depth dept
 		MovePicker mp(pos, ttMove, Position::pieceScore(move.cap()));
 		const CheckInfo ci(pos);
 		while (!(move = mp.nextMove()).isNone()) {
-			if (pos.pseudoLegalMoveIsLegal<false, false>(move, ci.pinned)) {
+			if (pos.pseudoLegalMoveIsLegal<false, false>(move, ci.pinned))
+			{
 				ss->currentMove = move;
-                ss->counterMoves = &CounterMoveHistory[pos.moved_piece(move)][move.to()];
+				ss->counterMoves = &thisThread->counterMoveHistory[pos.moved_piece(move)][move.to()];
 				pos.doMove(move, st, ci, pos.moveGivesCheck(move, ci));
 				(ss+1)->staticEvalRaw.p[0][0] = ScoreNotEvaluated;
 				score = -search<NonPV>(pos, ss+1, -rbeta, -rbeta+1, rdepth, !cutNode);
@@ -1085,14 +1074,14 @@ Score search(Position& pos, Stack* ss, Score alpha, Score beta, const Depth dept
 
 	// step10
 	// internal iterative deepening
-	if ((PvNode ? 5 * OnePly : 8 * OnePly) <= depth
+	if (6 * OnePly <= depth
 		&& ttMove.isNone()
-		&& (PvNode || beta <= ss->staticEval + static_cast<Score>(256)))
+		&& (PvNode || ss->staticEval + 256 >= beta))
 	{
-        Depth d = depth - 2 * OnePly - (PvNode ? Depth0 : depth / 4);
+		Depth d = (3 * depth / (4 * OnePly) - 2) * OnePly;
 
 		ss->skipEarlyPruning = true;
-		search<NT>(pos, ss, alpha, beta, d, true);
+		search<NT>(pos, ss, alpha, beta, d, cutNode);
 		ss->skipEarlyPruning = false;
 
 		tte = TT.probe(posKey, ttHit);
@@ -1100,8 +1089,10 @@ Score search(Position& pos, Stack* ss, Score alpha, Score beta, const Depth dept
 	}
 
 moves_loop:
-    Square prevSq = (ss-1)->currentMove.to();
-    const CounterMoveStats& cmh = CounterMoveHistory[pos.piece(prevSq)][prevSq];
+	Square prevSq = (ss-1)->currentMove.to();
+	const CounterMoveStats* cmh  = (ss-1)->counterMoves;
+	const CounterMoveStats* fmh  = (ss-2)->counterMoves;
+	const CounterMoveStats* fmh2 = (ss-4)->counterMoves;
 
 	MovePicker mp(pos, ttMove, depth, ss);
 	const CheckInfo ci(pos);
@@ -1150,9 +1141,14 @@ moves_loop:
 		extension = Depth0;
 		captureOrPawnPromotion = move.isCaptureOrPawnPromotion();
 		givesCheck = pos.moveGivesCheck(move, ci);
+		moved_piece = pos.moved_piece(move);
+		moveCountPruning = depth < 16 * OnePly
+						&& moveCount >= FutilityMoveCounts[improving][depth];
 
 		// step12
-		if (givesCheck && ScoreZero <= pos.seeSign(move))
+		if (  givesCheck
+		  && !moveCountPruning
+		  &&  pos.seeSign(move) >= ScoreZero )
 			extension = OnePly;
 
 		// singuler extension
@@ -1178,45 +1174,40 @@ moves_loop:
 
 		// step13
 		// futility pruning
-		if (!rootNode
-			&& !captureOrPawnPromotion
-			&& !inCheck
-			&& !givesCheck
+		if ( !rootNode
 			&& ScoreMatedInMaxPly < bestScore)
 		{
-			assert(move != ttMove);
-			// move count based pruning
-			if (depth < 16 * OnePly
-				&& FutilityMoveCounts[improving][depth] <= moveCount)
+			if ( !captureOrPawnPromotion
+				&& !inCheck
+				&& !givesCheck )
 			{
-				continue;
+
+				// move count based pruning
+				if (moveCountPruning)
+					continue;
+
+				// Reduced depth of the next LMR search
+				int lmrDepth = std::max(newDepth - reduction<PvNode>(improving, depth, moveCount), Depth0) / OnePly;
+
+				// Countermoves based pruning
+				if (lmrDepth <= 4 * OnePly
+					&& (!cmh  || (*cmh )[moved_piece][move.to()] < ScoreZero)
+					&& (!fmh  || (*fmh )[moved_piece][move.to()] < ScoreZero)
+					&& (!fmh2 || (*fmh2)[moved_piece][move.to()] < ScoreZero || (cmh && fmh)))
+					continue;
+
+				// Futility pruning: parent node
+				if (   lmrDepth < 7
+					&& ss->staticEval + 256 + 200 * lmrDepth <= alpha)
+					continue;
+
+				// Prune moves with negative SEE at low depths
+				if (lmrDepth < 4 * OnePly && pos.seeSign(move) < ScoreZero)
+					continue;
 			}
-
-            //const Piece pc = colorAndPieceTypeToPiece(pos.turn(), move.pieceTypeFromOrDropped());
-            // History based pruning
-            if (depth <= 4 * OnePly
-              && move != ss->killers[0]
-              && thisThread->history[pos.moved_piece(move)][move.to()] < ScoreZero
-              && cmh[pos.moved_piece(move)][move.to()] < ScoreZero)
-              continue;
-
-			// score based pruning
-			predictedDepth = std::max(newDepth - reduction<PvNode>(improving, depth, moveCount), Depth0);
-
-            if (predictedDepth < 7 * OnePly) {
-			// gain を 2倍にする。
-              const Score futilityScore = ss->staticEval + futilityMargin(predictedDepth) + 256;
-
-			if (futilityScore < alpha) {
-				bestScore = std::max(bestScore, futilityScore);
+			else if ( depth < 3 * OnePly
+				&& pos.seeSign(move) < ScoreZero)
 				continue;
-			}
-            }
-
-			if (predictedDepth < 4 * OnePly && pos.seeSign(move) < ScoreZero)
-			{
-				continue;
-			}
 		}
 
 		// RootNode, SPNode はすでに合法手であることを確認済み。
@@ -1226,7 +1217,7 @@ moves_loop:
 		}
 
 		ss->currentMove = move;
-        ss->counterMoves = &CounterMoveHistory[pos.moved_piece(move)][move.to()];
+		ss->counterMoves = &thisThread->counterMoveHistory[moved_piece][move.to()];
 
 		// step14
 		pos.doMove(move, st, ci, givesCheck);
@@ -1238,18 +1229,19 @@ moves_loop:
 			&& moveCount > 1
 			&& !captureOrPawnPromotion)
 		{
-          Depth r = reduction<PvNode>(improving, depth, moveCount);
-          Score hValue = thisThread->history[pos.piece(move.to())][move.to()];
-          Score cmhValue = cmh[pos.piece(move.to())][move.to()];
+			Depth r = reduction<PvNode>(improving, depth, moveCount);
+			Score val = thisThread->history[moved_piece][move.to()]
+						+    (cmh  ? (*cmh )[moved_piece][move.to()] : ScoreZero)
+						+    (fmh  ? (*fmh )[moved_piece][move.to()] : ScoreZero)
+						+    (fmh2 ? (*fmh2)[moved_piece][move.to()] : ScoreZero);
 
-          // Increase reduction for cut nodes and moves with a bad history
-          if ((!PvNode && cutNode)
-            || (hValue < ScoreZero && cmhValue <= ScoreZero))
-            r += OnePly;
+			// Increase reduction for cut nodes and moves with a bad history
+			if ( cutNode )
+				r += 2 * OnePly;
 
-          // Decrease reduction for moves with a good history
-          int rHist = (hValue + cmhValue) / 14980;
-          r = std::max(Depth0, r - rHist * OnePly);
+			// Decrease reduction for moves with a good history
+			int rHist = (val - 10000) / 20000;
+			r = std::max(Depth0, r - rHist * OnePly);
 
 #if 0
             // Decrease reduction for moves that escape a capture
@@ -1353,16 +1345,15 @@ moves_loop:
 	if (moveCount == 0)
 		bestScore = !excludedMove.isNone() ? alpha : matedIn(ss->ply);
 
-    else if (!bestMove.isNone() && !bestMove.isCaptureOrPawnPromotion())
-        update_stats(pos, ss, bestMove, depth, quietsSearched, quietCount);
+	else if (!bestMove.isNone() && !bestMove.isCaptureOrPawnPromotion())
+		update_stats(pos, ss, bestMove, depth, quietsSearched, quietCount);
 
-    else if (depth >= 3 * OnePly
-      && bestMove.isNone() //!bestMove
-      && !inCheck
-      && !ttMove.isCapture()//!move.cap()
-      && (ss-1)->currentMove.is_ok())
-    {
-         Score bonus = Score((depth / OnePly) * (depth / OnePly) + depth / OnePly - 1);
+	else if (depth >= 3 * OnePly
+		&& bestMove.isNone() //!bestMove
+		&& !ttMove.isCapture()//!move.cap()
+		&& (ss-1)->currentMove.is_ok())
+	{
+        Score bonus = Score((depth / OnePly) * (depth / OnePly) + depth / OnePly - 1);
         if ((ss-2)->counterMoves)
             (ss-2)->counterMoves->update(pos.piece(prevSq), prevSq, bonus);
 
