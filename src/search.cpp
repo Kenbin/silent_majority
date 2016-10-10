@@ -994,7 +994,7 @@ Score search(Position& pos, Stack* ss, Score alpha, Score beta, const Depth dept
 		&& depth < 7 * OnePly
 		&& beta <= eval - futilityMargin(depth)
 		&& eval < ScoreKnownWin)
-		return eval - futilityMargin(depth);
+		return eval;
 
 	// step8
 	// null move
@@ -1029,10 +1029,9 @@ Score search(Position& pos, Stack* ss, Score alpha, Score beta, const Depth dept
 
 			// Do verification search at high depths
 			ss->skipEarlyPruning = true;
-			assert(Depth0 < depth - R);
-			const Score s = depth-R < OnePly ? 
-				qsearch<NonPV, false>(pos, ss, beta-1, beta, Depth0)
-				: search<NonPV>(pos, ss, beta-1, beta, depth-R, false);
+//			assert(Depth0 < depth - R);
+			const Score s = depth-R < OnePly ? qsearch<NonPV, false>(pos, ss, beta-1, beta, Depth0)
+											 :  search<NonPV>(pos, ss, beta-1, beta, depth-R, false);
 			ss->skipEarlyPruning = false;
 
 			if (beta <= s)
@@ -1044,8 +1043,7 @@ Score search(Position& pos, Stack* ss, Score alpha, Score beta, const Depth dept
 	// probcut
 	if (!PvNode
 		&& 5 * OnePly <= depth
-		// 確実にバグらせないようにする。
-		&& abs(beta) < ScoreInfinite - 200)
+		&& abs(beta) < ScoreMateInMaxPly)
 	{
 		const Score rbeta = std::min(beta + 200, ScoreInfinite);
 		const Depth rdepth = depth - 4 * OnePly;
@@ -1125,7 +1123,7 @@ moves_loop:
 			continue;
 		}
 
-			ss->moveCount = ++moveCount;
+		ss->moveCount = ++moveCount;
 
 #if 0
 		if (rootNode && thisThread == Threads.main() && 3000 < Timer.elapsed()) {
@@ -1142,11 +1140,12 @@ moves_loop:
 		captureOrPawnPromotion = move.isCaptureOrPawnPromotion();
 		givesCheck = pos.moveGivesCheck(move, ci);
 		moved_piece = pos.moved_piece(move);
+
 		moveCountPruning = depth < 16 * OnePly
 						&& moveCount >= FutilityMoveCounts[improving][depth];
 
-		// step12
-		if (  givesCheck
+		// step12 Extend checks
+		if (givesCheck
 			&& !moveCountPruning
 			&&  pos.seeSign(move) >= ScoreZero )
 			extension = OnePly;
@@ -1154,22 +1153,22 @@ moves_loop:
 		// singuler extension
 		if (singularExtensionNode
 			&& move == ttMove
-			&& extension == Depth0
+			&& !extension
 			&& pos.pseudoLegalMoveIsLegal<false, false>(move, ci.pinned))
 		{
-			const Score rBeta = ttScore - static_cast<Score>(2*depth/OnePly);
+			const Score rBeta = std::max(ttScore - static_cast<Score>(2 * depth / OnePly), -ScoreMate0Ply);
 			ss->excludedMove = move;
 			ss->skipEarlyPruning = true;
-			score = search<NonPV>(pos, ss, rBeta-1, rBeta, depth/2, cutNode);
+			score = search<NonPV>(pos, ss, rBeta-1, rBeta, (depth / (2 * OnePly)) * OnePly, cutNode);
 			ss->skipEarlyPruning = false;
 			ss->excludedMove = Move::moveNone();
 
 			if (score < rBeta) {
 				extension = OnePly;
-				//extension = (beta <= rBeta ? OnePly + OnePly / 2 : OnePly);
 			}
 		}
 
+		// Update the current move (this must be done after singular extension search)
 		newDepth = depth - OnePly + extension;
 
 		// step13
@@ -1178,10 +1177,8 @@ moves_loop:
 			&& ScoreMatedInMaxPly < bestScore)
 		{
 			if ( !captureOrPawnPromotion
-				&& !inCheck
 				&& !givesCheck )
 			{
-
 				// move count based pruning
 				if (moveCountPruning)
 					continue;
@@ -1205,6 +1202,7 @@ moves_loop:
 				if (lmrDepth < 4 * OnePly && pos.seeSign(move) < ScoreZero)
 					continue;
 			}
+
 			else if ( depth < 3 * OnePly
 				&& pos.seeSign(move) < ScoreZero)
 				continue;
@@ -1227,9 +1225,10 @@ moves_loop:
 		// LMR
 		if (3 * OnePly <= depth
 			&& moveCount > 1
-			&& !captureOrPawnPromotion)
+			&& (!captureOrPawnPromotion || moveCountPruning))
 		{
 			Depth r = reduction<PvNode>(improving, depth, moveCount);
+
 			Score val = thisThread->history[moved_piece][move.to()]
 						+    (cmh  ? (*cmh )[moved_piece][move.to()] : ScoreZero)
 						+    (fmh  ? (*fmh )[moved_piece][move.to()] : ScoreZero)
@@ -1265,10 +1264,10 @@ moves_loop:
 		// full depth search
 		// PVS
 		if (doFullDepthSearch) {
-			score = (newDepth < OnePly ?
-			  (givesCheck ? -qsearch<NonPV,  true>(pos, ss+1, -(alpha+1), -alpha, Depth0)
-					      : -qsearch<NonPV, false>(pos, ss+1, -(alpha+1), -alpha, Depth0))
-					      : - search<NonPV>(pos, ss+1, -(alpha+1), -alpha, newDepth, !cutNode));
+			score = newDepth < OnePly ?
+							givesCheck ? -qsearch<NonPV,  true>(pos, ss+1, -(alpha+1), -alpha, Depth0)
+									   : -qsearch<NonPV, false>(pos, ss+1, -(alpha+1), -alpha, Depth0)
+									   : - search<NonPV>(pos, ss+1, -(alpha+1), -alpha, newDepth, !cutNode);
 		}
 
 		// 通常の探索
@@ -1277,10 +1276,10 @@ moves_loop:
 			(ss+1)->pv = pv;
 			(ss+1)->pv[0] = MOVE_NONE;
 
-			score = (newDepth < OnePly ?
-			  (givesCheck ? -qsearch<PV,  true>(pos, ss+1, -beta, -alpha, Depth0)
-					      : -qsearch<PV, false>(pos, ss+1, -beta, -alpha, Depth0))
-					      : - search<PV>(pos, ss+1, -beta, -alpha, newDepth, false));
+			score = newDepth < OnePly ?
+							givesCheck ? -qsearch<PV,  true>(pos, ss+1, -beta, -alpha, Depth0)
+									   : -qsearch<PV, false>(pos, ss+1, -beta, -alpha, Depth0)
+									   : - search<PV>(pos, ss+1, -beta, -alpha, newDepth, false);
 		}
 
 		// step17
@@ -1292,11 +1291,13 @@ moves_loop:
 		if (Signals.stop.load(std::memory_order_relaxed))
 			return ScoreZero;
 
-		if (rootNode) {
+		if (rootNode)
+		{
 			RootMove& rm = *std::find(thisThread->rootMoves.begin(), thisThread->rootMoves.end(), move);
 
-			if (moveCount == 1 || alpha < score) {
-				// PV move or new best move
+			// PV move or new best move
+			if (moveCount == 1 || alpha < score)
+			{
 				rm.score = score;
 				rm.pv.resize(1);
 
@@ -1316,6 +1317,7 @@ moves_loop:
 			bestScore = score;
 
 			if (alpha < score) {
+				// If there is an easy move for this position, clear it if unstable
 				if (PvNode
 					&&  thisThread == Threads.main()
 					&&  !EasyMove.get(pos.getKey()).isNone()
@@ -1528,6 +1530,7 @@ Score qsearch(Position& pos, Stack* ss, Score alpha, Score beta, const Depth dep
 
 		assert(-ScoreInfinite < score && score < ScoreInfinite);
 
+		// Check for a new best move
 		if (bestScore < score) {
 			bestScore = score;
 
