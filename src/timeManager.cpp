@@ -59,7 +59,10 @@ namespace {
 
 void TimeManagement::init(Search::LimitsType& limits, Color us, int ply) {
 	const int minThinkingTime = Options["Minimum_Thinking_Time"];
-    const int slowMover       = Options["Slow_Mover"];
+	const int slowMover       = (ply < 10 ? Options["Slow_Mover_10"] :
+								 ply < 16 ? Options["Slow_Mover_16"] :
+								 ply < 20 ? Options["Slow_Mover_20"] :
+								 ply < 40 ? Options["Slow_Mover_40"] : Options["Slow_Mover"]);
     const int moveOverhead    = Options["Move_Overhead"];
     const int npmsec          = Options["nodestime"];
 

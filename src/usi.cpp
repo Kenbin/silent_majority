@@ -75,11 +75,11 @@ void init(OptionsMap& o) {
 	o["Clear_Hash"]                  = Option(onClearHash);
 	o["Book_File"]                   = Option("book/20150503/book.bin");
 	o["Best_Book_Move"]              = Option(false);
-	o["OwnBook"]                     = Option(true);
+	o["OwnBook"]                     = Option(false);
 	o["Min_Book_Ply"]                = Option(SHRT_MAX, 0, SHRT_MAX);
 	o["Max_Book_Ply"]                = Option(SHRT_MAX, 0, SHRT_MAX);
 	o["Min_Book_Score"]              = Option(-180, -ScoreInfinite, ScoreInfinite);
-	o["Eval_Dir"]                    = Option("20161007", onEvalDir);
+	o["Eval_Dir"]                    = Option("eval", onEvalDir);
 	o["Write_Synthesized_Eval"]      = Option(false);
 	o["USI_Ponder"]                  = Option(true);
 	o["Byoyomi_Margin"]              = Option(500, 0, INT_MAX);
@@ -88,8 +88,12 @@ void init(OptionsMap& o) {
 	o["Skill_Level"]                 = Option(20, 0, 20);
 	o["Max_Random_Score_Diff"]       = Option(0, 0, ScoreMate0Ply);
 	o["Max_Random_Score_Diff_Ply"]   = Option(40, 0, SHRT_MAX);
-	o["Slow_Mover"]                  = Option(100, 10, 1000);
-	o["Minimum_Thinking_Time"]       = Option(1500, 0, INT_MAX);
+	o["Slow_Mover_10"]               = Option(3, 1, 1000);
+	o["Slow_Mover_16"]               = Option(20, 1, 1000);
+ 	o["Slow_Mover_20"]               = Option(40, 1, 1000);
+ 	o["Slow_Mover_40"]               = Option(70, 1, 1000);
+	o["Slow_Mover"]                  = Option(90, 10, 1000);
+ 	o["Minimum_Thinking_Time"]       = Option(1500, 0, INT_MAX);
 	o["Threads"]                     = Option(cpuCoreCount(), 1, 128, onThreads);
     o["Move_Overhead"] = Option(30, 0, 5000);
     o["nodestime"] = Option(0, 0, 10000);
@@ -406,7 +410,7 @@ void measureGenerateMoves(const Position& pos) {
 #endif
 
 #ifdef NDEBUG
-const std::string MyName = "Re_SILENT_MAJORITY-161010";
+const std::string MyName = "Re_SILENT_MAJORITY-161018";
 #else
 const std::string MyName = "Apery Debug Build";
 #endif
