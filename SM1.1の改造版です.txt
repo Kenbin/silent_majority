@@ -1,4 +1,4 @@
-■特徴、方針
+■方針
 ・Silent_Majority1.1をベースにStockfishのコミットをいくつか適用した比較実験
 	→単純に最新コミット丸ごとの適用はしない
 	→同じ評価関数でも思考部が違う方が評価値や指し手が異なるから対戦を見てて楽しい（それで最新ソフトに勝ったり負けたりできると良い）
@@ -10,18 +10,18 @@
 ・継続的な更新はしない（たぶん）
 
 ■使い方
-・Silent_MajorityやAperyと同じ（それがワカラナイ人は諦めてください）
-・評価関数フォルダのデフォをRe_SILENT_MAJORITY-161018からデフォを eval に変更
+・Silent_MajorityやAperyと同じ
+・評価関数フォルダのデフォはRe_SILENT_MAJORITY-161018より eval に変更
 
 ■テスト1
 
 	・技巧20160606
 	　定跡 全部on
 
-	・Re_Silent_Majority-161013（BMI2）　※テストバージョン
+	・Re_Silent_Majority-161013（BMI2）　※非公開テストバージョン（ロジックは161010と変わらない）
 	　評価関数:apery20161007、定跡:off、USI_HASH:256MB
 
-	▼2秒400戦、12スレッド、Ponderなしでの自己対戦結果
+	▼2秒400戦、12スレッド、Ponderなしでの自己対戦結果（./result-test/Re_SM-161013 vs Gikou 20160606.zip）
 		W:279 L:121 D:0
 
 ■テスト2
@@ -32,7 +32,7 @@
 	・Re_Silent_Majority-161018（BMI2）
 	　評価関数:apery20161007、定跡:off、USI_HASH:256MB
 
-	▼2秒400戦、12スレッド、Ponderなしでの自己対戦結果
+	▼2秒400戦、12スレッド、Ponderなしでの自己対戦結果（./result-test/Re_SM-161018 vs Gikou 20160606.zip）
 		W: L: D:	※対戦終わったら更新
 
 	※バージョンアップの結果：
