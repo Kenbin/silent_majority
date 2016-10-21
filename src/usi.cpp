@@ -83,20 +83,20 @@ void init(OptionsMap& o) {
 	o["Write_Synthesized_Eval"]      = Option(false);
 	o["USI_Ponder"]                  = Option(true);
 	o["Byoyomi_Margin"]              = Option(500, 0, INT_MAX);
-    o["Inc_Margin"]                  = Option(4500, 0, INT_MAX);
+	o["Inc_Margin"]                  = Option(4500, 0, INT_MAX);
 	o["MultiPV"]                     = Option(1, 1, MaxLegalMoves);
 	o["Skill_Level"]                 = Option(20, 0, 20);
 	o["Max_Random_Score_Diff"]       = Option(0, 0, ScoreMate0Ply);
 	o["Max_Random_Score_Diff_Ply"]   = Option(40, 0, SHRT_MAX);
 	o["Slow_Mover_10"]               = Option(3, 1, 1000);
 	o["Slow_Mover_16"]               = Option(20, 1, 1000);
- 	o["Slow_Mover_20"]               = Option(40, 1, 1000);
- 	o["Slow_Mover_40"]               = Option(70, 1, 1000);
+	o["Slow_Mover_20"]               = Option(40, 1, 1000);
+	o["Slow_Mover_40"]               = Option(70, 1, 1000);
 	o["Slow_Mover"]                  = Option(90, 10, 1000);
- 	o["Minimum_Thinking_Time"]       = Option(1500, 0, INT_MAX);
+	o["Minimum_Thinking_Time"]       = Option(1500, 0, INT_MAX);
 	o["Threads"]                     = Option(cpuCoreCount(), 1, 128, onThreads);
-    o["Move_Overhead"] = Option(30, 0, 5000);
-    o["nodestime"] = Option(0, 0, 10000);
+	o["Move_Overhead"] = Option(30, 0, 5000);
+	o["nodestime"] = Option(0, 0, 10000);
 	o["PV_Margin"]                   = Option(200, 0, 1000);
 }
 
