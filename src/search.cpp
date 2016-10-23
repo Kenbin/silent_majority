@@ -24,7 +24,7 @@ namespace Search {
 #if defined INANIWA_SHIFT
 	InaniwaFlag inaniwaFlag;
 #endif
-};
+}
 
 using namespace Search;
 
@@ -480,6 +480,7 @@ void MainThread::search() {
 	const Ply book_ply = dist(g_randomTimeSeed);
 
 	bool nyugyokuWin = false;
+
 #if defined LEARN
 #else
 	if (nyugyoku(pos)) {
@@ -550,6 +551,7 @@ void MainThread::search() {
 	detectInaniwa(pos);
 #endif
 #endif
+
 	Thread::search(); // Let's start searching!
 
 #if defined LEARN
@@ -592,12 +594,10 @@ finalize:
 		SYNCCOUT << "bestmove win" << SYNCENDL;
 	else if (rootMoves[0].pv[0].isNone())
 		SYNCCOUT << "bestmove resign" << SYNCENDL;
-
 	else
 	{
 		if (bestThread != this)
 			SYNCCOUT << pvInfoToUSI(bestThread->rootPos, bestThread->completedDepth, -ScoreInfinite, ScoreInfinite) << SYNCENDL;
-
 
 		SYNCCOUT << "bestmove " << bestThread->rootMoves[0].pv[0].toUSI();
 		if (bestThread->rootMoves[0].pv.size() > 1 || bestThread->rootMoves[0].extract_ponder_from_tt(pos))
@@ -615,7 +615,8 @@ void Thread::search() {
 	Move easyMove = MOVE_NONE;
 	MainThread* mainThread = (this == Threads.main() ? Threads.main() : nullptr);
 	int lastInfoTime = -1; // 将棋所のコンソールが詰まる問題への対処用
-	int pv_margin = Options["PV_Margin"]; // PVの出力間隔[ms]
+	const int pv_margin = Options["PV_Margin"];	 // PVの出力間隔[ms]
+	const bool max_depth = Options["Max_Depth"] ? true : false;
 
 	std::memset(ss-5, 0, 8 * sizeof(Stack));
 
@@ -724,7 +725,7 @@ void Thread::search() {
 					&& (bestScore <= alpha || bestScore >= beta)
 					&& 3000 < Time.elapsed()
 					// 将棋所のコンソールが詰まるのを防ぐ。
-					&& (rootDepth < 4 || lastInfoTime + pv_margin < Time.elapsed()))
+					&& (rootDepth < 4 || lastInfoTime + pv_margin < Time.elapsed() || rootDepth == Limits.depth || max_depth))
 				{
 					lastInfoTime = Time.elapsed();
 					SYNCCOUT << pvInfoToUSI(rootPos, rootDepth, alpha, beta) << SYNCENDL;
@@ -770,7 +771,7 @@ void Thread::search() {
 			else if ((pvIdx + 1 == MultiPV
 				|| 3000 < Time.elapsed())
 				// 将棋所のコンソールが詰まるのを防ぐ。
-				&& (rootDepth < 4 || lastInfoTime + pv_margin < Time.elapsed()))
+				&& (rootDepth < 4 || lastInfoTime + pv_margin < Time.elapsed() || rootDepth == Limits.depth || max_depth))
 			{
 				lastInfoTime = Time.elapsed();
 				SYNCCOUT << pvInfoToUSI(rootPos, rootDepth, alpha, beta) << SYNCENDL;
