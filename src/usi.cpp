@@ -95,9 +95,10 @@ void init(OptionsMap& o) {
 	o["Slow_Mover"]                  = Option(90, 10, 1000);
 	o["Minimum_Thinking_Time"]       = Option(1500, 0, INT_MAX);
 	o["Threads"]                     = Option(cpuCoreCount(), 1, 128, onThreads);
-	o["Move_Overhead"] = Option(30, 0, 5000);
-	o["nodestime"] = Option(0, 0, 10000);
+	o["Move_Overhead"]               = Option(30, 0, 5000);
+	o["nodestime"]                   = Option(0, 0, 10000);
 	o["PV_Margin"]                   = Option(200, 0, 1000);
+	o["Max_Depth"]                   = Option(0, 0, 1000);	//0だとリミットなし
 }
 
 Option::Option(const char* v, Fn* f) :
@@ -180,6 +181,9 @@ void go(const Position& pos, std::istringstream& ssCmd) {
 				moves.push_back(usiToMove(pos, token));
 		}
 	}
+	//UIの最大探索深さを優先する。主に将棋GUIでの検討時の挙動対応
+	if (!limits.depth && 0 < Options["Max_Depth"])
+		limits.depth = Options["Max_Depth"];
     if (limits.moveTime != 0)
         limits.moveTime -= Options["Byoyomi_Margin"];
     else if (limits.inc[pos.turn()] != 0)
